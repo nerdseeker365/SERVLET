@@ -1,0 +1,22 @@
+<web-app>
+
+<!--servlet Detais Configuration-->
+
+<servlet>
+
+		<servlet-name>wish</servlet-name>
+		<servlet-class>com.nt.servlet.WishMessageGeneratorServlet</servlet-class>
+
+</servlet>
+
+<!--servlet-Mapping-->
+
+<servlet-mapping>
+
+	    <servlet-name>wish</servlet-name>
+
+		<url-pattern>wishurl</url-pattern>
+
+</servlet-mapping>
+
+</web-app>
