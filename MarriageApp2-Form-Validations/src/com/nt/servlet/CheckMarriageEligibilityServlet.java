@@ -65,7 +65,7 @@ public class CheckMarriageEligibilityServlet extends HttpServlet {
 				
 				pw.println("<h4 style=color:green>Person Name Is Required</h4>");
 				
-				return;
+				//return;
 			}
 			
 			
