@@ -1,0 +1,21 @@
+<web-app>
+
+<!-- Servlet Details Configuration-->
+<servlet>
+
+<servlet-name>date</servlet-name>
+<servlet-class>com.nt.servlet.DateServlet</servlet-class>
+
+</servlet>
+
+
+<!-- Servlet Mapping Configuration-->
+
+<servlet-mapping>
+
+<servlet-name>date</servlet-name>
+<url-pattern>/test1</url-pattern>
+
+</servlet-mapping>
+
+</web-app>

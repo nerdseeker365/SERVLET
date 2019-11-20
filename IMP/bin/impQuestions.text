@@ -1,0 +1,1570 @@
+2) How do I support both GET and POST protocol from the same Servlet?
+Answer:
+
+
+The easy way is, just support POST, then have your doGet method call your doPost method:
+
+1
+public void doGet(HttpServletRequest req, HttpServletResponse res)
+2
+               throws ServletException, IOException
+3
+               {
+4
+                  doPost(req, res);
+5
+               }
+3) How do I ensure that my servlet is thread-safe?
+Answer:
+
+This is actually a very complex issue. A few guidelines:
+
+The init() method is guaranteed to be called once per servlet instance, when the servlet is loaded. You don’t have to worry about thread safety inside this method, since it is only called by a single thread, and the web server will wait until that thread exits before sending any more threads into your service() method.
+Every new client request generates (or allocates) a new thread; that thread calls the service() method of your servlet (which may in turn call doPost(), doGet() and so forth).
+Under most circumstances, there is only one instance of your servlet, no matter how many client requests are in process. That means that at any given moment, there may be many threads running inside the service() method of your solo instance, all sharing the same instance data and potentially stepping on each other’s toes. This means that you should be careful to synchronize access to shared data (instance variables) using the synchronized keyword.
+(Note that the server will also allocate a new instance if you register the servlet with a new name and, e.g., new init parameters.)
+
+Note that you need not (and should not) synchronize on local data or parameters. And especially you shouldn’t synchronize the service() method! (Or doPost(), doGet() et al.)
+A simple solution to synchronizing is to always synchronize on the servlet instance itself using &quot;synchronized (this) { … }&quot;. However, this can lead to performance bottlenecks; you’re usually better off synchronizing on the data objects themselves.
+If you absolutely can’t deal with synchronizing, you can declare that your servlet &quot;implements SingleThreadModel&quot;. This empty interface tells the web server to only send one client request at a time into your servlet. From the JavaDoc: &quot;If the target servlet is flagged with this interface, the servlet programmer is guaranteed that no two threads will execute concurrently the service method of that servlet. This guarantee is ensured by maintaining a pool of servlet instances for each such servlet, and dispatching each service call to a free servlet. In essence, if the servlet implements this interface, the servlet will be thread safe.&quot; Note that this is not an ideal solution, since performance may suffer (depending on the size of the instance pool), plus it’s more difficult to share data across instances than within a single instance.
+See also What’s a better approach for enabling thread-safe servlets and JSPs? SingleThreadModel Interface or Synchronization?
+
+To share data across successive or concurrent requests, you can use either instance variables or class-static variables, or use Session Tracking.
+The destroy() method is not necessarily as clean as the init() method. The server calls destroy either after all service calls have been completed, or after a certain number of seconds have passed, whichever comes first. This means that other threads might be running service requests at the same time as your destroy() method is called! So be sure to synchronize, and/or wait for the other requests to quit. Sun’s Servlet Tutorial has an example of how to do this with reference counting.
+destroy() can not throw an exception, so if something bad happens, call log() with a helpful message (like the exception). See the &quot;closing a JDBC connection&quot; example in Sun’s Tutorial.
+4) What is the difference between URL encoding, URL rewriting, HTML escaping, and entity encoding?
+Answer:
+
+URL Encoding
+is a process of transforming user input to a CGI form so it is fit for travel across the network — basically, stripping spaces and punctuation and replacing with escape characters. URL Decoding is the reverse process. To perform these operations, call java.net.URLEncoder.encode() and java.net.URLDecoder.decode() (the latter was (finally!) added to JDK 1.2, aka Java 2).
+
+Example:
+
+changing “We’re #1!” into “We%27re+%231%21”
+
+URL Rewriting
+is a technique for saving state information on the user’s browser between page hits. It’s sort of like cookies, only the information gets stored inside the URL, as an additional parameter. The HttpSession API, which is part of the Servlet API, sometimes uses URL Rewriting when cookies are unavailable.
+
+Example:
+
+changing <A HREF=”nextpage.html”> into
+
+<A HREF=”nextpage.html;$sessionid$=DSJFSDKFSLDFEEKOE”> (or whatever the actual syntax is; I forget offhand) (Unfortunately, the method in the Servlet API for doing URL rewriting for session management is called encodeURL(). Sigh…)
+
+There’s also a feature of the Apache web server called URL Rewriting; it is enabled by the mod_rewrite module. It rewrites URLs on their way in to the server, allowing you to do things like automatically add a trailing slash to a directory name, or to map old file names to new file names. This has nothing to do with servlets.
+
+5) How do I upload a file to my servlet or JSP?
+Answer:
+
+On the client side, the client’s browser must support form-based upload. Most modern browsers do, but there’s no guarantee. For example,
+
+1
+<FORM ENCTYPE='multipart/form-data'  method='POST' action='/myservlet'>
+2
+                  <INPUT TYPE='file' NAME='mptest'>
+3
+                  <INPUT TYPE='submit' VALUE='upload'>
+4
+               </FORM>
+The input type &quot;file&quot; brings up a button for a file select box on the browser together with a text field that takes the file name once selected. The servlet can use the GET method parameters to decide what to do with the upload while the POST body of the request contains the file data to parse.
+
+When the user clicks the “Upload” button, the client browser locates the local file and sends it using HTTP POST, encoded using the MIME-type multipart/form-data. When it reaches your servlet, your servlet must process the POST data in order to extract the encoded file. You can learn all about this format in RFC 1867.
+
+Unfortunately, there is no method in the Servlet API to do this. Fortunately, there are a number of libraries available that do. Some of these assume that you will be writing the file to disk; others return the data as an InputStream.
+
+Jason Hunter’s MultipartRequest (available from http://www.servlets.com/)
+Apache Jakarta Commons Upload (package org.apache.commons.upload) “makes it easy to add robust, high-performance, file upload capability to your servlets and web applications”
+CParseRFC1867 (available from http://www.servletcentral.com/).
+HttpMultiPartParser by Anil Hemrajani, at the isavvix Code Exchange
+There is a multipart/form parser availailable from Anders Kristensen (http://www-uk.hpl.hp.com/people/ak/java/,ak@hplb.hpl.hp.com) at http://www-uk.hpl.hp.com/people/ak/java/#utils.
+JavaMail also has MIME-parsing routines (see the Purple Servlet References).
+Jun Inamori has written a class called org.apache.tomcat.request.ParseMime which is available in the TomcatCVS tree.
+JSPSmart has a free set of JSP for doing file upload and download.
+UploadBean by JavaZoom claims to handle most of the hassle of uploading for you, including writing to disk or memory.
+There’s an Upload Tag in dotJ
+Once you process the form-data stream into the uploaded file, you can then either write it to disk, write it to a database, or process it as an InputStream, depending on your needs. See How can I access or create a file or folder in the current directory from inside a servlet? and other questions in the Servlets:Files Topic for information on writing files from a Servlet.
+
+Please note that you can’t access a file on the client system directly from a servlet; that would be a huge security hole. You have to ask the user for permission, and currently form-based upload is the only way to do that.
+
+6) How does a servlet communicate with a JSP page?
+Answer:
+
+The following code snippet shows how a servlet instantiates a bean and initializes it with FORM data posted by a browser. The bean is then placed into the request, and the call is then forwarded to the JSP page, Bean1.jsp, by means of a request dispatcher for downstream processing.
+
+01
+public void doPost (HttpServletRequest request,
+02
+                                              HttpServletResponse response) {
+03
+ 
+04
+                  try {
+05
+                    govi.FormBean f = new govi.FormBean();
+06
+                    String id = request.getParameter("id");
+07
+                    f.setName(request.getParameter("name"));
+08
+                    f.setAddr(request.getParameter("addr"));
+09
+                    f.setAge(request.getParameter("age"));
+10
+                              //use the id to compute
+11
+                              //additional bean properties like info
+12
+                               //maybe perform a db query, etc.
+13
+                              // . . .
+14
+                              f.setPersonalizationInfo(info);
+15
+                    request.setAttribute("fBean",f);
+16
+                    getServletConfig().getServletContext().getRequestDispatcher
+17
+                                              ("/jsp/Bean1.jsp").forward(request, response);
+18
+                  } catch (Exception ex) {
+19
+                    . . .
+20
+                  }
+21
+               }
+The JSP page Bean1.jsp can then process fBean, after first extracting it from the default request scope via the useBean action.
+
+1
+<jsp:useBean id="fBean" class="govi.FormBean" scope="request"/>
+2
+              <jsp:getProperty name="fBean" property="name" />
+3
+              <jsp:getProperty name="fBean" property="addr" />
+4
+              <jsp:getProperty name="fBean" property="age" />
+5
+              <jsp:getProperty name="fBean" property="personalizationInfo" />
+7) What’s a better approach for enabling thread-safe servlets and JSPs? SingleThreadModel Interface or Synchronization?
+Answer:
+
+Although the SingleThreadModel technique is easy to use, and works well for low volume sites, it does not scale well. If you anticipate your users to increase in the future, you may be better off implementing explicit synchronization for your shared data. The key however, is to effectively minimize the amount of code that is synchronzied so that you take maximum advantage of multithreading.
+
+Also, note that SingleThreadModel is pretty resource intensive from the server’s perspective. The most serious issue however is when the number of concurrent requests exhaust the servlet instance pool. In that case, all the unserviced requests are queued until something becomes free – which results in poor performance. Since the usage is non-deterministic, it may not help much even if you did add more memory and increased the size of the instance pool.
+
+8) Can a servlet maintain a JTA UserTransaction object across multiple servlet invocations?
+Answer:
+
+No. A JTA transaction must start and finish within a single invocation (of the service() method). Note that this question does not address servlets that maintain and manipulate JDBC connections, including a connection’s transaction handling.
+
+9) How does the performance of JSP pages compare with that of servlets? How does it compare with Perl scripts?
+Answer:
+
+The performance of JSP pages is very close to that of servlets. However, users may experience a perceptible delay when a JSP page is accessed for the very first time. This is because the JSP page undergoes a “translation phase” wherein it is converted into a servlet by the JSP engine. Once this servlet is dynamically compiled and loaded into memory, it follows the servlet life cycle for request processing. Here, the jspInit() method is automatically invoked by the JSP engine upon loading the servlet, followed by the _jspService() method, which is responsible for request processing and replying to the client. Do note that the lifetime of this servlet is non-deterministic – it may be removed from memory at any time by the JSP engine for resource-related reasons. When this happens, the JSP engine automatically invokes the jspDestroy() method allowing the servlet to free any previously allocated resources.
+
+Subsequent client requests to the JSP page do not result in a repeat of the translation phase as long as the servlet is cached in memory, and are directly handled by the servlet’s service() method in a concurrent fashion (i.e. the service() method handles each client request within a seperate thread concurrently.)
+
+There have been some recent studies contrasting the performance of servlets with Perl scripts running in a “real-life” environment. The results are favorable to servlets, especially when they are running in a clustered environment.
+
+10) How do I call one servlet from another servlet?
+Answer:
+
+[ Short answer: there are several ways to do this, including
+use a RequestDispatcher
+use a URLConnection or HTTPClient
+send a redirect
+call getServletContext().getServlet(name) (deprecated, doesn’t work in 2.1+)
+– Alex ]
+
+It depends on what you mean by “call” and what it is you seek to do and why you seek to do it.
+
+If the end result needed is to invoke the methods then the simplest mechanism would be to treat the servlet like any java object , create an instance and call the mehods.
+
+If the idea is to call the service method from the service method of another servlet, AKA forwarding the request, you could use the RequestDispatcher object.
+
+If, however, you want to gain access to the instance of the servlet that has been loaded into memory by the servlet engine, you have to know the alias of the servlet. (How it is defined depends on the engine.) For example, to invoke a servlet in JSDK a servlet can be named by the property
+
+1
+myname.code=com.sameer.servlets.MyServlet
+The code below shows how this named servlet can be accessed in the service method of another servlet
+
+1
+public void service (HttpServletRequest request, HttpServletResponse response)
+2
+                                throws ServletException, IOException {
+3
+                  ...
+4
+                  MyServlet ms=(MyServlet) getServletConfig().getServletContext().getServlet("myname");
+5
+                  ...
+6
+               }
+That said, This whole apporach of accessing servlets in another servlets has been deprecated in the 2.1 version of the servlet API due to the security issues. The cleaner and better apporach is to just avoid accessing other servlets directly and use the RequestDispatcher instead.
+
+11) What are all the different kinds of servers? (Such as Web Servers, Application Servers, etc)
+Answer:
+
+The servers involved in handling and processing a user’s request break down into a few basic types, each of which may have one or more tasks it solves. This flexibility gives developers a great deal of power over how applications will be created and deployed, but also leads to confusion over what server is able to, or should, perform a specific task.
+
+Starting at the basic level, a user is typically submitting a request to a system through a web browser. (We are conveniently ignoring all other types of clients (RMI, CORBA, COM/DCOM, Custom, etc..) for the time being for purposes of clarity.) The web request must be received by a Web Server (otherwise known as an HTTP Server) of some sort. This web server must handle standard HTTP requests and responses, typically returning HTML to the calling user. Code that executes within the server environment may be CGI driven, Servlets, ASP, or some other server-side programming language, but the end result is that the web server will pass back HTML to the user.
+
+The web server may need to execute an application in response to the users request. It may be generating a list of news items, or handling a form submission to a guest book. If the server application is written as a Java Servlet, it will need a place to execute, and this place is typically called a Servlet Engine. Depending on the web server, this engine may be internal, external, or a completely different product. This engine is continually running, unlike a traditional CGI environment where a CGI script is started upon each request to the server. This persistance gives a servlet connection and thread pooling, as well as an easy way to maintain state between each HTTP request. JSP pages are usually tied in with the servlet engine, and would execute within the same space/application as the servlets.
+
+There are many products that handle the web serving and the servlet engine in different manners. Netscape/iPlanet Enterprise Server builds the servlet engine directly into the web server and runs within the same process space. Apache requires that a servlet engine run in an external process, and will communicate to the engine via TCP/IP sockets. Other servers, such as MS IIS don’t officially support servlets, and require add-on products to add that capability.
+
+When you move on to Enterprise JavaBeans (and other J2EE components like JMS and CORBA) you move into the application server space. An Application Server is any server that supplies additional functionality related to enterprise computing — for instance, load balancing, database access classes, transaction processing, messaging, and so on.
+
+EJB Application Servers provide an EJB container, which is the environment that beans will execute in, and this container will manage transactions, thread pools, and other issues as necessary. These application servers are usually stand-alone products, and developers would tie their servlets/JSP pages to the EJB components via remote object access APIs. Depending on the application server, programmers may use CORBA or RMI to talk to their beans, but the baseline standard is to use JNDI to locate and create EJB references as necessary.
+
+Now, one thing that confuses the issue is that many application server providers include some or all of these components in their product. If you look at WebLogic (http://www.beasys.com/) you will find that WebLogic contains a web server, servlet engine, JSP processor, JMS facility, as well as an EJB container. Theoretically a product like this could be used to handle all aspects of site development. In practice, you would most likely use this type of product to manage/serve EJB instances, while dedicated web servers handle the specific HTTP requests.
+
+12) Should I override the service() method?
+Answer:
+
+No. It provides a fair bit of housekeeping that you’d just have to do yourself. If you need to do something regardless of whether the request is e.g., a POST or a GET, create a helper method and call that at the beginning of e.g., doPost() and doGet().
+
+13) How can my application get to know when a HttpSession is removed (when it time-outs)?
+Answer:
+
+Define a class, say SessionTimeoutNotifier, that implements javax.servlet.http.HttpSessionBindingListener. Create a SessionTimeoutNotifier object and add it to the user session. When the session is removed, SessionTimeoutNotifier.valueUnbound() will be called by the servlet engine. You can implement valueUnbound() to do whatever you want.
+
+14) Why use JSP when we can do the same thing with servlets?
+[Original question: Why should I use JSP when there is already servlet technology available for serving dynamic content?]
+Answer:
+
+While JSP may be great for serving up dynamic Web content and separating content from presentation, some may still wonder why servlets should be cast aside for JSP. The utility of servlets is not in question. They are excellent for server-side processing, and, with their significant installed base, are here to stay. In fact, architecturally speaking, you can view JSP as a high-level abstraction of servlets that is implemented as an extension of the Servlet 2.1 API. Still, you shouldn’t use servlets indiscriminately; they may not be appropriate for everyone. For instance, while page designers can easily write a JSP page using conventional HTML or XML tools, servlets are more suited for back-end developers because they are often written using an IDE — a process that generally requires a higher level of programming expertise.
+
+When deploying servlets, even developers have to be careful and ensure that there is no tight coupling between presentation and content. You can usually do this by adding a third-party HTML wrapper package like htmlKona to the mix. But even this approach, though providing some flexibility with simple screen changes, still does not shield you from a change in the presentation format itself. For example, if your presentation changed from HTML to DHTML, you would still need to ensure that wrapper packages were compliant with the new format. In a worst-case scenario, if a wrapper package is not available, you may end up hardcoding the presentation within the dynamic content. So, what is the solution? One approach would be to use both JSP and servlet technologies for building application systems.
+
+15) How do I send information and data back and forth between applet and servlet using the HTTP protocol?
+Answer:
+
+Use the standard java.net.URL class, or “roll your own” using java.net.Socket. See the HTTP spec
+at W3C for more detail.
+
+Note: The servlet cannot initiate this connection! If the servlet needs to asynchronously send a message to the applet, then you must open up a persistent socket using java.net.Socket (on the applet side), and java.net.ServerSocket and Threads (on the server side).
+
+16) Can I get the path of the current servlet where it lives on the file system (not its URL)?
+Answer:
+
+Try using:
+
+1
+request.getRealPath(request.getServletPath())
+An example may be:
+
+1
+out.println(request.getRealPath(request.getServletPath()));
+17) How can I daisy chain servlets together such that the output of one servlet serves as the input to the next?
+Answer:
+
+There are two common methods for chaining the output of one servlet to another servlet :
+
+the first method is the aliasing which describes a series of servlets to be executed
+the second one is to define a new MIME-Type and associate a servlet as handlers As I don’t really use the second one, I’ll focus on the aliasing.
+To chain servlets together, you have to specify a sequential list of servlets and associate it to an alias. When a request is made to this alias, the first servlet in the list is invoked, processed its task and sent the ouptut to the next servlet in the list as the request object. The output can be sent again to another servlets.
+
+To accomplish this method, you need to configure your servlet engine (JRun, JavaWeb server, JServ …).
+
+For example to configure JRun for servlet chaining, you select the JSE service (JRun servlet engine) to access to the JSE Service Config panel. You have just to define a new mapping rule where you define your chaining servlet.
+
+Let say /servlets/chainServlet for the virtual path and a comma separated list of servlets as srvA,srvB.
+
+So when you invoke a request like http://localhost/servlets/chainServlet, internally the servlet srvA will be invoked first and its results will be piped into the servlet srvB.
+
+The srvA servlet code should look like :
+
+1
+public class srvA extends HttpServlet {
+2
+                  ...
+3
+                  public void doGet (...) {
+4
+                    PrintWriter out =res.getWriter();
+5
+                    rest.setContentType("text/html");
+6
+                    ...
+7
+                    out.println("Hello Chaining servlet");
+8
+                  }
+9
+               }
+All the servlet srvB has to do is to open an input stream to the request object and read the data into a BufferedReader object as for example :
+
+1
+BufferedReader b = new BufferedReader( new InputStreamReader(req.getInputStream() ) );
+2
+               String data = b.readLine();
+3
+               b.close();
+After that you can format your output with the data.
+
+It should work straigthforward with Java Web Server or Jserv too. Just look at in their documentation to define an alias name. Hope that it’ll help.
+
+18) Why there are no constructors in servlets?
+Answer:
+
+A servlet is just like an applet in the respect that it has an init() method that acts as a constrcutor. Since the servlet environment takes care of instantiating the servlet, an explicit constructor is not needed. Any initialization code you need to run should be placed in the init() method since it gets called when the servlet is first loaded by the servlet container.
+
+19) How to handle multiple concurrent database requests/updates when using JDBC with servlets?
+Answer:
+
+All the dbms provide the facility of locks whenever the data is being modified. There can be two scenarios:
+
+Multiple database updates on different rows, if you are using servlets the servlets will open multiple connections for different users. In this case there is no need to do additional programming.
+If database updates are on the same row then the rows are locked automatically by the dbms, hence we have to send requests to the dbms repeatatively until the lock is released by dbms.
+This issue is dealt with in the JDBC documentation; look up “Transactions” and “auto-commit”. It can get pretty confusing.
+
+20) What is the difference between GenericServlet and HttpServlet?
+Answer:
+
+GenericServlet is for servlets that might not use HTTP, like for instance FTP servlets. Of course, it turns out that there’s no such thing as FTP servlets, but they were trying to plan for future growth when they designed the spec. Maybe some day there will be another subclass, but for now, always use HttpServlet.
+
+21) How do you share session objects between servlets and JSP?
+Answer:
+
+Sharing sessions between a servlet and a JSP page is straight forward. JSP makes it a little easy by creating a session object and making it availabe already. In a servlet you would have to do it yourself. This is how:
+
+1
+//create a session if one is not created already now
+2
+              HttpSession session = request.getSession(true);
+3
+              //assign the session variable to a value.
+4
+              session.putValue("variable","value");
+in the jsp page this is how you get the session value:
+
+1
+<%
+2
+              session.getValue("varible");
+3
+              %>
+22) What is a servlet?
+Answer:
+
+A servlet is a way of extending your web server with a Java program to perform tasks previously dealt with by CGI scripts or proprietary server extension frameworks.
+
+23) Is there any method to unload a servlet from Web Server memory without restarting the server?
+Answer:
+
+There is no standard method/mechanism to unload a servlet from memory. Some servers, like JWS, provide the means to load and unload servlets from their administration module. Others, like Tomcat, require you to just replace the WAR file.
+
+24) What distinguishes a JavaBean from a Servlet?
+Answer:
+
+JavaBeans are a set of rules to follow to create reusable software components, or beans. This contains properties and events. At the end you have a component which could be examined by a program (like an IDE) to allow the user of your JavaBean component to configure it and to run in its Java programs.
+
+Servlets are Java classes running in a Servlet engine implementing a particular interface: Servlet, forcing you to implement some methods (service()). The servlet is an extension of your web server where this servlet is running on and only lets you know when a user requests a GET or POST calls from a web page to your servlet.
+
+So, both have nothing in common except Java.
+
+25) How much data we can store in a session object?
+Answer:
+
+Any amount of data can be stored there because the session is kept on the server side.
+
+The only limitation is sessionId length, which shouldn’t exceed ~4000 bytes – this limitation is implied by HTTP header length limitation to 4Kb since sessionId may be stored in the cookie or encoded in URL (using “URL rewriting“) and the cookie specification says the size of cookie as well as HTTP request (e.g. GET /document.html\n) cannot be longer then 4kb.
+
+26) What is the difference between the doGet and doPost methods?
+Answer:
+
+doGet is called in response to an HTTP GET request. This happens when users click on a link, or enter a URL into the browser’s address bar. It also happens with some HTML FORMs (those with METHOD=”GET” specified in the FORM tag).
+
+doPost is called in response to an HTTP POST request. This happens with some HTML FORMs (those with METHOD=”POST” specified in the FORM tag).
+
+Both methods are called by the default (superclass) implementation of service in the HttpServlet base class. You should override one or both to perform your servlet’s actions. You probably shouldn’t override service().
+
+27) What is the difference between encodeRedirectUrl and encodeURL?
+Answer:
+
+encodeURL and encodeRedirectURL are methods of the HttpResponse object. Both rewrite a raw URL to include session data if necessary. (If cookies are on, both are no-ops.)
+
+encodeURL is for normal links inside your HTML pages.
+
+encodeRedirectURL is for a link you’re passing to response.sendRedirect(). It has slightly different syntax requirements too gory to get into here.
+
+28) Can I use System.exit() in servlets?
+Answer:
+
+Gack! No no no no no…
+
+At best, you’ll get a security exception. At worst, you’ll make the servlet engine, or maybe the entire web server, quit. You don’t really want to do that, huh?
+
+29) I am opening a single JDBC connection in my init() method. Do I need to synchronize on the Connection or the Statement object?
+Answer:
+
+You shouldn’t have to. If your JDBC driver supports multiple connections, then the various createStatement methods will give you a thread-safe, reentrant, independent Statement that should work OK, even if other requests/threads are also accessing other Statements on the same Connection.
+
+Of course, crossing your fingers never hurts… Many early JDBC drivers were not re-entrant. The modern versions of JDBC drivers should work OK, but there are never any guarantees.
+
+Using connection pooling will avoid the whole issue, plus will lead to improved performance.
+
+30) How can I determine the name and version number of the servlet or JSP engine that I am using?
+Answer:
+
+From within a servlet, you can invoke the ServletContext.getServerInfo() method as follows:
+
+1
+String thisServer= getServletConfig().getServletContext().getServerInfo();
+If you are using JSP, you can use this expression:
+
+1
+<%= application.getServerInfo() %>
+31) How can I get the absolute URL of a servlet/JSP page at runtime?
+Answer:
+
+You can get all the necessary information to determine the URL from the request object. To reconstruct the absolute URL from the scheme, server name, port, URI and query string you can use the URL class from java.net. The following code fragment will determine your page’s absolute URL:
+
+1
+String file = request.getRequestURI();
+2
+               if (request.getQueryString() != null) {
+3
+                  file += '?' + request.getQueryString();
+4
+               }
+5
+               URL reconstructedURL = new URL(request.getScheme(),
+6
+                                                             request.getServerName(),
+7
+                                                             request.getServerPort(),
+8
+                                                             file);
+9
+               out.println(URL.toString());
+32) Why do GenericServlet and HttpServlet implement the Serializable interface?
+Answer:
+
+GenericServlet and HttpServlet implement the Serializable interface so that servlet engines can “hybernate” the servlet state when the servlet is not in use and reinstance it when needed or to duplicate servlet instances for better load balancing. I don’t know if or how current servlet engines do this, and it could have serious implications, like breaking references to objects gotten in the init() method without the programmer knowing it. Programmers should be aware of this pitfall and implement servlets which are stateless as possible, delegating data store to Session objects or to the ServletContext. In general stateless servlets are better because they scale much better and are cleaner code.
+
+33) How does one choose between overriding the doGet(), doPost(), and service() methods?
+Answer:
+
+The differences between the doGet() and doPost() methods are that they are called in the HttpServlet that your servlet extends by its service() method when it recieves a GET or a POST request from a HTTP protocol request.
+
+A GET request is a request to get a resource from the server. This is the case of a browser requesting a web page. It is also possible to specify parameters in the request, but the length of the parameters on the whole is limited. This is the case of a form in a web page declared this way in html: <form method=”GET”> or <form>.
+
+A POST request is a request to post (to send) form data to a resource on the server. This is the case of of a form in a web page declared this way in html: <form method=”POST”>. In this case the size of the parameters can be much greater.
+
+The GenericServlet has a service() method that gets called when a client request is made. This means that it gets called by both incoming requests and the HTTP requests are given to the servlet as they are (you must do the parsing yourself).
+
+The HttpServlet instead has doGet() and doPost() methods that get called when a client request is GET or POST. This means that the parsing of the request is done by the servlet: you have the appropriate method called and have convenience methods to read the request parameters.
+
+NOTE: the doGet() and doPost() methods (as well as other HttpServlet methods) are called by the service() method.
+
+Concluding, if you must respond to GET or POST requests made by a HTTP protocol client (usually a browser) don’t hesitate to extend HttpServlet and use its convenience methods.
+
+If you must respond to requests made by a client that is not using the HTTP protocol, you must use service().
+
+34) How do servlets differ from RMI? What are the advantages and disadvantages of each technology?
+Answer:
+
+Servlets extend the server-side functionality of a website. Servlets communicate with other application(s) on that server (or any other server) and perform tasks above and beyond the “normal” static HTML document. A servlet can receive a request to get some information through EJB from one or more databases, then convert this data into a static HTML/WML page for the client to see, for example. Even if the servlet talks to many other applications all over the world to get this information, it still looks like it happened at that website.
+
+RMI (Remote Method Invocation) is just that – a way to invoke methods on remote machines. It is way for anapplication to talk to another remote machine and execute different methods, all the while appearing as if the action was being performed on the local machine.
+
+Servlets (or JSP) are mainly used for any web-related activity such as online banking, online grocery stores, stock trading, etc. With servlets, you need only to know the web address and the pages displayed to you take care of calling the different servlets (or actions within a servlet) for you. Using RMI, you must bind the RMI server to an IP and port, and the client who wishes to talk to the remote server must know this IP and port, unless of course you used some kind of in-between lookup utility, which you could do with (of all things) servlets.
+
+35) How can we use a servlet as a proxy for communications between two applets?
+Answer:
+
+One way to accomplish this is to have the applets communicate via TCP/IP sockets to the servlet. The servlet would then use a custom protocol to receive and push information between applets. However, this solution does have firewall problems if the system is to be used over and Internet verses an Intranet.
+
+36) How can I design my servlet/JSP so that query results get displayed on several pages, like the results of a search engine? Each page should display, say, 10 records each and when the next link is clicked, I should see the next/previous 10 records and so on.
+Answer:
+
+Use a Java Bean to store the entire result of the search that you have found. The servlet will then set a pointer to the first line to be displayed in the page and the number of lines to display, and force a display of the page. The Action in the form would point back to the servlet in the JSP page which would determine whether a next or previous button has been pressed and reset the pointer to previous pointer + number of lines and redisplay the page. The JSP page would have a scriplet to display data from the Java Bean from the start pointer set to the maximum number of lines with buttons to allow previous or next pages to be selected. These buttons would be displayed based on the page number (i.e. if first then don’t display previous button).
+
+37) How do I deal with multi-valued parameters in a servlet?
+Answer:
+
+Instead of using getParameter() with the ServletRequest, as you would with single-valued parameters, use the getParameterValues() method. This returns a String array (or null) containing all the values of the parameter requested.
+
+38) How can I pass data retrieved from a database by a servlet to a JSP page?
+Answer:
+
+One of the better approaches for passing data retrieved from a servlet to a JSP is to use the Model 2 architecture as shown below:
+
+Basically, you need to first design a bean which can act as a wrapper for storing the resultset returned by the database query within the servlet. Once the bean has been instantiated and initialized by invoking its setter methods by the servlet, it can be placed within the request object and forwarded to a display JSP page as follows:
+
+1
+com.foo.dbBean bean = new com.foo.dbBean();
+2
+               //call setters to initialize bean
+3
+               req.setAttribute("dbBean", bean);
+4
+               url="..."; //relative url for display jsp page
+5
+               ServletContext sc = getServletContext();
+6
+               RequestDispatcher rd = sc.getRequestDispatcher(url);
+7
+               rd.forward(req, res);
+The bean can then be accessed within the JSP page via the useBean tag as:
+
+1
+<jsp:useBean id="dbBean" class="com.foo.dbBean" scope="request"/>
+2
+               ...
+3
+               <%
+4
+                  //iterate through the rows within dbBean and
+5
+                  //access the values using a scriptlet
+6
+               %>
+Also, it is best to design your application such that you avoid placing beans into the session unless absolutely necessary. Placing large objects within the session imposes a heavy burden on the performance of the servlet engine. Of course, there may be additional design considerations to take care of – especially if your servlets are running under a clustered or fault-tolerant architecture.
+
+39) How can I use a servlet to generate a site using frames?
+Answer:
+
+In general, look at each frame as a unique document capable of sending its own requests and receiving its own responses. You can create a top servlet (say, FrameServlet) that upon invocation creates the frame layout you desire and sets the SRC parameters for the frame tags to be another servlet, a static page or any other legal value for SRC.
+
+01
+---------------------- SAMPLE ----------------------
+02
+              
+03
+              public void doGet(HttpServletRequest request,
+04
+              HttpServletResponse response) throws ServletException, IOException {
+05
+              response.setContentType("text/html");
+06
+              PrintWriter out = new PrintWriter (response.getWriter());
+07
+              
+08
+              out.println("");
+09
+              out.println("Your Title");
+10
+              
+11
+              // definingthe three rows of Frames for the main page
+12
+              // top : frm_1
+13
+              // middle : frm_2
+14
+              // bottom : frm_3
+15
+              
+16
+              out.println("");
+17
+              out.println("");
+18
+              out.println("");
+19
+              out.println("");
+20
+              out.println("");
+21
+              
+22
+              out.println("");
+23
+              out.println("");
+24
+              out.close();
+25
+              -------------------------- END ------------------------------------------
+Where MenuServlet and DummyServlet provide content and behavior for the frames generated by FrameServlet.
+
+40) What is HTTP tunneling, in the general sense?
+Answer:
+
+HTTP tunneling is a general technique whereby arbitrary data may be sent via an HTTP connection to and from CGI scripts or Java Servlets on a Web server. This is done by serializing the data to be transmitted into a stream of bytes, and sending an HTTP message with content type “application/octet-stream”.
+
+HTTP tunneling is also referred to as Firewall tunneling.
+
+41) How do I handle FORMs with multiple form elements (e.g. radio buttons) using the same name?
+Answer:
+
+For radio buttons, the HTML spec assumes that a given group of buttons will have the same NAME and different VALUEs; the browser makes sure that only one button per group name will be selected (at most). So you can just call request.getParameter(“groupname”).
+
+1
+<input type="radio" name="topping" value="cheese" checked>Cheese
+2
+               <input type="radio" name="topping" value="pepperoni">Pepperoni
+3
+               <input type="radio" name="topping" value="anchovies">Anchovies
+If the user selects “Pepperoni” then request.getParameter(“topping”) will return the string “pepperoni”.
+
+For lists using the <select multiple> FORM tag, multiple values can be returned for the same parameter name. When that can happen, use request.getParameterValues(“param”) which returns a String[] you can iterate through.
+
+It’s bad form (so to speak), but you can also duplicate other element types, like
+
+1
+Name 1: <input type="text" name="name" value="Dick">
+2
+               Name 2: <input type="text" name="name" value="Jane">
+These also get returned in an array by request.getParameterValues().
+
+42) How do I separate presentation (HTML) from business logic (Java) when using servlets?
+Answer:
+
+Almost anybody who has ever written a servlet can identify with this one. We all know it’s bad for to embed HTML code in our java source; it’s lame to have to recompile and re-deploy every time you want an HTML element to look a bit different. But what are our choices here? There are two basic options;
+
+1. Use JSP: 
+Java Server Pages allows you to embed Java code or the results of a servlet into your HTML. You could, for instance, define a servlet that gives a stock quote, then use the tag in a JSP page to embed the output. But then, this brings up the same problem; without discipline, your content/presentation and program logic are again meshed. I think the ideal here is to completely separate the two.
+
+2. Use a templating/parsing system: 
+Hmm…I know you’re about to rant about re-inventing the wheel, but it’s not that bad (see below). Plus, it really does pay to take this approach; you can have a group of programmers working on the Java code, and a group of HTML producers maintaining the interface. So now you probably want to know how to do it…so read on.
+
+Use SSI!
+
+Remember SSI? It hasn’t gotten much attention in recent years because of embeddable scripting languages like ASP and JSP, but it still remains a viable option. To leverage it in the servlet world, I believe the best way is to use an API called SSI for Java from Areane. This API will let you emulate SSI commands from a templating system, and much more. It will let you execute any command on any system, including executing java classes! It also comes with several utility classes for creating stateful HTML form elements, tables for use with iteration, and much more. It’s also open source, so it’s free and you can tweak it to your heart’s content! You can read the SSI for Java documentation for detailed info, but the following is an example of its use.
+
+Here’s the servlet:
+
+01
+import javax.servlet.*;
+02
+import javax.servlet.http.*;
+03
+import java.io.*;
+04
+import java.util.*;
+05
+import com.areane.www.ssi.*;
+06
+ 
+07
+public class SSITemplatingServlet extends HttpServlet {
+08
+   private String templateFilesDirectory = "d:\\projects\\idemo\\templates\\"; //Holds path to template files
+09
+ 
+10
+   /**Handles GET requests; defers every request to the POST processor*/
+11
+   public void doGet(HttpServletRequest req, HttpServletResponse res)
+12
+                throws ServletException, IOException, FileNotFoundException {doPost(req, res);}
+13
+    
+14
+   /**Handles all requests. Processes the request,
+15
+     *saves the values, parses the file, then feeds the file to the out stream*/
+16
+   public void doPost(HttpServletRequest req, HttpServletResponse res)
+17
+     throws ServletException, IOException, FileNotFoundException {
+18
+     HttpSession ses = req.getSession(true);
+19
+                  
+20
+     Properties context = null;
+21
+     if((context = (Properties)ses.getValue("user.context")) == null) { //if properties doesn't already exist, create it.
+22
+                context = new Properties();
+23
+     }
+24
+ 
+25
+     //Write parameters to Properties object
+26
+     Enumeration paramNames = req.getParameterNames();
+27
+     String curName, curVal;
+28
+     while(paramNames.hasMoreElements()) {
+29
+                curName = (String)paramNames.nextElement();
+30
+                curVal = req.getParameter(curName);
+31
+                context.setProperty(curName, curVal);
+32
+     }
+33
+ 
+34
+     //Save the values to the session
+35
+     ses.putValue("user.context", context);
+36
+ 
+37
+     //Parse the page and stream to the client
+38
+     String templateName = req.getParameter("template"); // Get the file name of the template to use
+39
+     res.setContentType("text/html");
+40
+     SsiPage page = SsiParser.parse(this.templateFilesDirectory + templateName); //Parsing occurs here
+41
+     page.write(res.getWriter(), context); //Stream to the client
+42
+  
+43
+     page = null; //clean up
+44
+   }
+45
+}
+Now, just create a template file, pass the servlet the template file name, and have at it!
+
+43) For an HTML FORM with multiple SUBMIT buttons, how can a servlet ond
+differently for each button?
+
+Answer:
+
+The servlet will respond differently for each button based on the html that you have placed in the HTML page. Let’s explain.
+
+For a submit button the HTML looks like <input type=submit name=”Left” value=”left”>. A servlet could extract the value of this submit by using the getParameter(“Left”) from the HttpRequest object. It follows then that if you have HTML within a FORM that appears as:
+
+1
+<input type=submit name="Direction" value="left">
+2
+ 
+3
+             <input type=submit name="Direction" value="right">
+4
+ 
+5
+             <input type=submit name="Direction" value="up">
+6
+ 
+7
+             <input type=submit name="Direction" value="down">
+Then the getParameter(“Direction”) from the HttpRequest would extract the value pressed by the user, either “left”, “right”, “up” or “down”. A simple comparision in the servlet with the these values could occur and processing based on the submit button would be performed.
+
+Similiarly,for submit buttons with different names on a page, each of these values could be extracted using thegetParameter() call and acted on. However, in a situation where there are multiple buttons, common practice would be to use one name and multiple values to identify the button pressed.
+
+44) What is meant by the term “business logic”?
+Answer:
+
+“Business logic” is just a fancy way of saying “code.”
+
+More precisely, in a three-tier architecture, business logic is any code that is not specifically related to storing and retrieving data (that’s “data storage code”), or to formatting data for display to the user (that’s “presentation logic”). It makes sense, for many reasons, to store this business logic in separate objects; the middle tier comprises these objects. However, the divisions between the three layers are often blurry, and business logic is more of an ideal than a reality in most programs. The main point of the term is, you want somewhere to store the logic and “business rules” (another buzzword) of your application, while keeping the division between tiers clear and clean.
+
+45) How can I explicitly unload a servlet or call the destroy method?
+Answer:
+
+In general, you can’t. The Servlet API does not specify when a servlet is unloaded or how the destroy method is called. Your servlet engine (ie the implementation of the interfaces in the JSDK) might provide a way to do this, probably through its administration interface/tool (like Webshpere or JWS). Most servlet engines will also destroy and reload your servlet if they see that the class file(s) have been modified.
+
+46) What is a servlet bean?
+Answer:
+
+A servlet bean is a serializable servlet that follows the JavaBeans component architecture, basically offering getter/setter methods.
+
+As long as you subclass GenericServlet/HttpServlet, you are automatically Serializable.
+
+If your web server supports them, when you install the servlet in the web server, you can configure it through a property sheet-like interface.
+
+47) Why do we need to call super.init(config) in the init method of a servlet?
+Answer:
+
+Just do as you’re told and you won’t get hurt!
+
+Because if you don’t, then the config object will get lost. Just extend HttpServlet, use init() (no parameters) and it’ll all work ok.
+
+From the Javadoc: init() – A convenience method which can be overridden so that there’s no need to call super.init(config).
+
+48) What is a servlet engine?
+Answer:
+
+A “servlet engine” is a program that plugs in to a web server and runs servlets. The term is obsolete; the preferred term now is “servlet container” since that applies both to plug-in engines and to stand-alone web servers that support the Servlet API.
+
+49) Which is the most efficient (i.e. processing speed) way to create a server application that accesses a database: A Servlet using JDBC; a JSP page using a JavaBean to carry out the db access; or JSP combined with a Servlet? Are these my only choices?
+Answer:
+
+Your question really should be broken in two.
+
+1-What is the most efficient way of serving pages from a Java object?. There you have a clear winner in the Servlet. Althought if you are going to change the static content of the page often is going to be a pain because you’ll have to change Java code. The second place in speed is for JSP pages. But, depending on your application, the difference in speed between JSP pages and raw servlets can be so small that is not worth the extra work of servlet programming.
+
+2-What is the most efficient way of accessing a database from Java?. If JDBC is the way you want to go the I’d suggest to pick as many drivers as you can (II,III,IV or wathever) and benchmark them. Type I uses a JDBC/ODBC bridge and usually has lousy performance. Again, go for the simplest (usually type IV driver) solution if that meets you performance needs.
+
+For database applications, the performance bottleneck is usually the database, not the web server/engine. In this case, the use of a package that access JDBC with connection pooling at the application level used from JSP pages (with or withouth beans as middleware) is the usual choice. Of course, your applications requirements may vary.
+
+50) How can I change the port of my Java Web Server from 8080 to something else?
+Answer:
+
+It is very simple. JAVA WEB SERVER comes with remote Web administration tool. You can access this with a web browser.
+
+Administration tool is located on port 9090 on your web server. To change port address for web server:
+
+Access tool (http://hostname:9090)
+Enter User Id/Password (by default it is admin/admin)
+Select service (Web service)
+Click on “manage” button. You will get a popup screen with all settings.
+Click on network tree node, On right hand side you will get text box for entering port no.
+Change port number with desire one.
+click on restart button.
+51) Can I send multiple responses for a single request?
+Answer:
+
+No. That doesn’t even make sense
+
+You can, however, send a “redirect”, which tells the user’s browser to send another request, possibly to the same servlet with different parameters. Search this FAQ on “redirect” to learn more.
+
+52) What is FORM based login and how do I use it? Also, what servlet containers support it?
+Answer:
+
+Form based login is one of the four known web based login mechanisms. For completeness I list all of them with a description of their nature:
+
+HTTP Basic Authentication
+An authentication protocol defined within the HTTP protocol (and based on headers). It indicates the HTTP realm for which access is being negotiated and sends passwords with base64 encoding, therefore it is not very secure. (See RFC2068 for more information.)
+HTTP Digest Authentication
+Like HTTP Basic Authentication, but with the password transmitted in an encrypted form. It is more secure than Basic, but less then HTTPS Authentication which uses private keys. Yet it is not currently in widespread use.
+HTTPS Authentication (SSL Mutual Authentication)
+This security mechanism provides end user authentication using HTTPS (HTTP over SSL). It performs mutual (client & server) certificate based authentication with a set of different cipher suites.
+Form Based Login
+A standard HTML form (static, Servlet/JSP or script generated) for logging in. It can be associated with protection or user domains, and is used to authenticate previously unauthenticated users.
+The major advantage is that the look and feel of the login screen can be controlled (in comparison to the HTTP browsers’ built in mechanisms).
+To support 1., 3., and 4. of these authentication mechanisms is a requirement of the J2EE Specification (as of v1.2, 3.4.1.3 Required Login Mechanisms). (HTTP Digest Authentication is not a requirement, but containers are encouraged to support it.)
+
+You can also see section 3.3.11.1 of the J2EE Specs. (User Authentication, Web Client) for more detailed descriptions of the mechanisms.
+
+Thus any Servlet container that conforms to the J2EE Platform specification should support form based login.
+
+To be more specific, the Servlet 2.2 Specification describes/specifies the same mechanisms in 11.5 including form based login in 11.5.3.
+
+This section (11.5.3) describes in depth the nature, the requirements and the naming conventions of form based login and I suggest to take a look at it.
+
+Here is a sample of a conforming HTML login form:
+
+1
+<form method="POST" action="j_security_check">
+2
+                 <input type="text" name="j_username">
+3
+                 <input type="password" name="j_password">
+4
+              </form>
+Known Servlet containers that support FORM-based login are:
+
+iPlanet Application Server
+Tomcat (the reference implementation of the Java Servlet API)
+53) How do I capture a request and dispatch the exact request (with all the parameters received) to another URL?
+Answer:
+
+As far as i know it depends on the location of the next target url.
+
+If the next servlet url is in the same host, then you can use the forward method.
+Here is an example code about using forward:
+
+1
+RequestDispatcher rd = null;
+2
+               String targetURL = "target_servlet_name";
+3
+               ServletContext ctx = this.getServletContext();
+4
+               rd = ctx.getRequestDispatcher(targetURL);
+5
+               rd.forward(request, response);
+54) How can the data within an HTML form be refreshed automatically whenever there is a change in the database?
+Answer:
+
+JSP is intended for dynamically generating pages. The generated pages can include wml, html, dhtml or whatever you want…
+
+When you have a generated page, JSP has already made its work. From this moment you have a page.
+
+If you want automatic refreshing, then this should be acomplished by the technology included in the generated page (JSP will tell only what to include in the page).
+
+The browser can not be loaded by extern factors. The browser is the one who fetches url’s since the http protocol is request-response based. If a server can reload a browser without its allow, it implies that we could be receiving pages which we haven’t asked for from servers.
+
+May you could use applets and a ServerSocket for receiving incoming signals from the server for changed data in the DB. This way you can load new information inside the applet or try to force a page reload.
+
+[That’s a nice idea — it could use the showDocument() call to reload the current page. It could also use HTTP polling instead of maintaining an expensive socket connection. -Alex]
+Perhaps (if possible), could be simpler using an automatic JavaScript refreshing function that force page reload after a specified time interval.
+
+55) What is a web application (or “webapp”)?
+Answer:
+
+A web application is a collection of servlets, html pages, classes, and other resources that can be bundled and run on multiple containers from multiple vendors. A web application is rooted at a specific path within a web server. For example, a catalog application could be located at http://www.mycorp.com/catalog. All requests that start with this prefix will be routed to the ServletContext which represents the catalog application.
+
+56) How can I call a servlet from a JSP page? How can I pass variables from the JSP that the servlet can access?
+Answer:
+
+You can use <jsp:forward page=”/relativepath/YourServlet” /> or response.sendRedirect(“http://path/YourServlet”).
+
+Variables can be sent as:
+
+1
+<jsp:forward page=/relativepath/YourServlet>
+2
+               <jsp:param name="name1" value="value1" />
+3
+               <jsp:param name="name2" value="value2" />
+4
+               </jsp:forward>
+You may also pass parameters to your servlet by specifying response.sendRedirect(“http://path/YourServlet?param1=val1”).
+
+57) Can there be more than one instance of a servlet at one time ?
+Answer:
+
+It is important to note that there can be more than one instance of a given Servlet class in the servlet container. For example, this can occur where there was more than one servlet definition that utilized a specific servlet class with different initialization parameters. This can also occur when a servlet implements the SingleThreadModel interface and the container creates a pool of servlet instances to use.
+
+58) How can I measure the file downloading time using servlets?
+Answer:
+
+01
+ServletOutputStream out = response.getOutputStream();
+02
+               String filename = getServletContext().getRealPath(request.getQueryString());
+03
+               FileInputStream fin = new FileInputStream(filename);
+04
+               long start = System.currentTimeMillis();
+05
+               byte data[] = new byte[1024];
+06
+               int len = 0;
+07
+               while ((len = fin.read(data)) > 0) {
+08
+                  out.write(data, 0, len);
+09
+               }
+10
+               out.flush();
+11
+               long stop = System.currentTimeMills();
+12
+               log("took " + (stop - start) + "ms to download " + filename);
+59) What is inter-servlet communication?
+Answer:
+
+As the name says it, it is communication between servlets. Servlets talking to each other. [There are many ways to communicate between servlets, including
+
+Request Dispatching
+HTTP Redirect
+Servlet Chaining
+HTTP request (using sockets or the URLConnection class)
+Shared session, request, or application objects (beans)
+Direct method invocation (deprecated)
+Shared static or instance variables (deprecated)
+Search the FAQ, especially topic Message Passing (including Request Dispatching) for information on each of these techniques. -Alex]
+
+Basically interServlet communication is acheived through servlet chaining. Which is a process in which you pass the output of one servlet as the input to other. These servlets should be running in the same server.
+
+e.g. ServletContext.getRequestDispatcher(HttpRequest, HttpResponse).forward(“NextServlet”) ; You can pass in the current request and response object from the latest form submission to the next servlet/JSP. You can modify these objects and pass them so that the next servlet/JSP can use the results of this servlet.
+
+There are some Servlet engine specific configurations for servlet chaining.
+
+Servlets can also call public functions of other servlets running in the same server. This can be done by obtaining a handle to the desired servlet through the ServletContext Object by passing it the servlet name ( this object can return any servlets running in the server). And then calling the function on the returned Servlet object.
+
+e.g. TestServlet test= (TestServlet)getServletConfig().getServletContext().getServlet(“OtherServlet”); otherServletDetails= Test.getServletDetails();
+
+You must be careful when you call another servlet’s methods. If the servlet that you want to call implements the SingleThreadModel interface, your call could conflict with the servlet’s single threaded nature. (The server cannot intervene and make sure your call happens when the servlet is not interacting with another client.) In this case, your servlet should make an HTTP request to the other servlet instead of direct calls.
+
+Servlets could also invoke other servlets programmatically by sending an HTTP request. This could be done by opening a URL connection to the desired Servlet.
+
+60) How do I make servlet aliasing work with Apache+Tomcat?
+Answer:
+
+When you use Tomcat standalone as your web server, you can modify the web.xml in $TOMCAT_HOME/webapps/myApp/WEB-INF to add a url-pattern:
+
+01
+<web-app>
+02
+                  <servlet>
+03
+                    <servlet-name>
+04
+                              myServlet
+05
+                    </servlet-name>
+06
+                    <servlet-class>
+07
+                              myServlet
+08
+                    </servlet-class>
+09
+                  </servlet>
+10
+                  <servlet-mapping>
+11
+                    <servlet-name>
+12
+                              myServlet
+13
+                    </servlet-name>
+14
+                    <url-pattern>
+15
+                              /jsp-bin/*
+16
+                    </url-pattern>
+17
+                 </servlet-mapping>
+18
+               </web-app>
+This will let you use: http://webserver:8080/myApp/jsp-bin/stuff.html instead of: http://webserver:8080/myApp/servlet/myServlet/stuff.html But it won’t work on port 80 if you’ve integrated Tomcat with Apache. Graeme Wallace provided this trick to remedy the situation. Add the following to your tomcat-apache.conf (or to a static version of it, since tomcat re-generates the conf file every time it starts):
+
+1
+<LocationMatch /myApp/jsp-bin/* >
+2
+                 SetHandler jserv-servlet
+3
+              </LocationMatch>
+This lets Apache turn over handling of the url pattern to your servlet.
+
+61) Is there any way to determine the number of concurrent connections my servlet engine can handle?
+Answer:
+
+Depends on whether or not your servlet container uses thread pooling. If you do not use a thread pool, the number of concurrent connections accepted by Tomcat 3.1, for example, is 10. This you can see for yourself by testing a servlet with the Apache JMeter tool.
+
+However, if your servlet container uses a thread pool, you can specify the number of concurrent connections to be accepted by the container. For Tomcat 3.1, the information on how to do so is supplied with the documentation in the TOMCAT_HOME/doc/uguide directory.
+
+62) What is a request dispatcher and how does it work?
+Answer:
+
+A RequestDispatcher object can forward a client’s request to a resource or include the resource itself in the response back to the client. A resource can be another servlet, or an HTML file, or a JSP file, etc.
+
+You can also think of a RequestDispatcher object as a wrapper for the resource located at a given path that is supplied as an argument to the getRequestDispatcher method.
+
+For constructing a RequestDispatcher object, you can use either the ServletRequest.getRequestDispatcher() method or the ServletContext.getRequestDispatcher() method. They both do the same thing, but impose slightly different constraints on the argument path. For the former, it looks for the resource in the same webapp to which the invoking servlet belongs and the pathname specified can be relative to invoking servlet. For the latter, the pathname must begin with ‘/’ and is interpreted relative to the root of the webapp.
+
+To illustrate, suppose you want Servlet_A to invoke Servlet_B. If they are both in the same directory, you could accomplish this by incorporating the following code fragment in either the service method or the doGet method of Servlet_A:
+
+1
+RequestDispatcher dispatcher = getRequestDispatcher("Servlet_B");
+2
+              dispatcher.forward( request, response );
+where request, of type HttpServletRequest, is the first parameter of the enclosing service method (or the doGet method) and response, of type HttpServletResponse, the second. You could accomplish the same by
+
+1
+RequestDispatcher dispatcher=getServletContext().getRequestDispatcher( "/servlet/Servlet_B" );
+2
+               dispatcher.forward( request, response );
+63) What is a Servlet Context?
+Answer:
+
+A Servlet Context is a grouping under which related servlets (and JSPs and other web resources) run. They can share data, URL namespace, and other resources. There can be multiple contexts in a single servlet container.
+
+The ServletContext object is used by an individual servlet to “call back” and obtain services from the container (such as a request dispatcher). Read the JavaDoc for javax.servlet.ServletContext for more information.
+
+You can maintain “application global” variables by using Servlet Context Attributes.
+
+64) Does the RequestDispatcher expect a relative URL to be relative to the originally-called servlet or to the current servlet (if different)?
+Answer:
+
+Since the RequestDispatcher will be passing the control (request object and response object) from the current Servlet, the relative URL must be relative to the current servlet.
+
+The originally called servlet has passed the control to the current servlet, and now current servlet is acting as controller to other resourses.
+
+65) What is the difference between in-process and out-of-process servlet containers?
+Answer:
+
+The in-process Servlet containers are the containers which work inside the JVM of Web server, these provides good performance but poor in scalibility.
+
+The out-of-process containers are the containers which work in the JVM outside the web server. poor in performance but better in scalibility
+
+In the case of out-of-process containers, web server and container talks with each other by using the some standard mechanism like IPC.
+
+In addition to these types of containers, there is 3rd type which is stand-alone servlet containers. These are an integral part of the web server.
+
+66) How is SingleThreadModel implemented in Tomcat? In other containers? [I would assume that Tomcat uses its connection thread pool, and creates a new instance of the servlet for each connection thread, instead of sharing one instance among all threads. Is that true?]
+Answer:
+
+The question mixes together two rather independent aspects of a servlet container: “concurrency control” and “thread pooling”.
+
+Concurrency control, such as achieved by having a servlet implement the SingleThreadModel interface, addresses the issue of thread safety. A servlet will be thread-safe or thread-unsafe regardless of whether the servlet container used a thread pool. Thread pooling merely eliminates the overhead associated with the creation and destruction of threads as a servlet container tries to respond to multiple requests received simultaneously. It is for this reason that the specification document for Servlet 2.2 API is silent on the subject of thread pooling — as it is merely an implementation detail. However, the document does indeed address the issue of thread safety and how and when to use SingleThreadModel servlets.
+
+Section 3.3.3.1 of the Servlet 2.2 API Specification document says that if a servlet implements the SingleThreadModel it is guaranteed “that only one request thread at time will be allowed in the service method.” It says further that “a servlet container may satisfy this guarantee by serializing requests on a servlet or by maintaining a pool of servlet instances.”
+
+Obviously, for superior performance you’d want the servlet container to create multiple instances of a SingleThreadModel type servlet should there be many requests received in quick succession. Whether or not a servlet container does that depends completely on the implementation. My experiments show that Tomcat 3.1 does indeed create multiple instances of a SingleThreadModel servlet, but only for the first batch of requests received concurrently. For subsequent batches of concurrent requests, it seems to use only one of those instances.
+
+67) Which servlet containers have persistent session support? Specifically, does Tomcat 3.1?
+Answer:
+
+All servlet containers that implement the Servlet 2.2 API must provide for session tracking through either the use of cookies or through URL rewriting. All Tomcat servlet containers support session tracking.
+
+68) Can I use JAAS as the authentication technology for servlets ?
+Answer:
+
+Yes, JAAS can be used as authentication technology for servlets. One important feature of JAAS is pure Java implementation. The JAAS infrastructure is divided into two main components: an authentication component and an authorization component. The JAAS authentication component provides the ability to reliably and securely determine who is currently executing Java code, regardless of whether the code is running as an application, an applet, a bean, or a servlet.
+
+69) How can I set a servlet to load on startup of the container, rather than on the first request?
+Answer:
+
+The Servlet 2.2 spec defines a load-on-startup element for just this purpose. Put it in the <servlet> section of your web.xml deployment descriptor. It is either empty (<load-on-startup/>) or contains “a positive integer indicating the order in which the servlet should be loaded. Lower integers are loaded before higher integers. If no value is specified, or if the value specified is not a positive integer, the container is free to load it at any time in the startup sequence.”
+
+For example,
+
+1
+<servlet>
+2
+                 <servlet-name>foo</servlet-name>
+3
+                 <servlet-class>com.foo.servlets.Foo</servlet-class>
+4
+                 <load-on-startup>5</load-on-startup>
+5
+              </servlet>
+Some servlet containers also have their own techniques for configuring this; please submit feedback with information on these.
+
+70) Is it possible to write a servlet that acts as a FTP server?
+Answer:
+
+Yes. It would spawn a thread that opens a ServerSocket, then listens for incoming connections and speaks the FTP protocol.
+
+71) Is there a way to disable a user’s ability to double-click a submit image/button (and therefore submitting duplicate data — multiple submits)? Is there a way to do this with Javascript?
+Answer:
+
+Give the submit image (or button) an onClick() handler. Have the handler check if a flag is set and if not set the flag and submit the form and then clear the form.
+
+72) What are the main differences between Servlets and ISAPI?
+Answer:
+
+The first difference is obviously that Servlets is the technology from Sun Microsystems and ISAPI is from Microsoft.
+
+Other Differences are:
+
+Servlet is a simple .class file and ISAPI is a DLL
+Servlets run in the Servlet containers and may be in-process or out of process. ISAs run in the same address space as the HTTP server
+Servlet container preprocesses and postprocesses the data communication between the client and server. ISAPI Filters provide the capability of pre-processing and post-processing of all data sent between the client and the server
+Java is the only choice for writing Servlets, VC++/MFC is used to write ISAPI code
+Servlets works on most of the Web servers plus third party containers can be integrated with other web servers to provide servlets on them. ISAPI works on only ISAPI-compliant Web server (for example, Microsoft Internet Information Server)
+Servlets can connect to the Databases through JDBC as well as jdbc-odbc bridges. ISAPI can connect to Databases through only ODBC
+Servlets have access to many server-side technologies like EJB and etc. ISAPI is limited in scope
+Multiple commands can be implemented in a servlet by using pathinfo. ISAPI allows multiple commands in one DLL, implemented as member functions of the CHttpServer object in the DLL.
+Content generation and content presentation can be done seperately in Servlets with the help of JSP. ISAPI code has to generate HTML code itself.
+73) Can I associate a servlet with a particular mime-type, so if the client requests a file of that type, my servlet will be executed?
+Answer:
+
+In web.xml you can use a mime-mapping to map the type with a certain extension and then map the servlet to that extension.
+
+e.g.
+
+01
+<mime-mapping>
+02
+                 <extension>
+03
+                   zzz
+04
+                 </extension>
+05
+                 <mime-type>
+06
+                   text/plain
+07
+                 </mime-type>
+08
+              </mime-mapping>
+09
+ 
+10
+              <servlet-mapping>
+11
+                 <url>
+12
+                   *.zzz
+13
+                 </url>
+14
+                 <servlet-name>
+15
+                   MyServlet
+16
+                 </servlet-name>
+17
+              </servlet-mapping>
+So, when a file for type zzz is requested, the servlet gets called.
+
+74) What are the different cases for using sendRedirect() vs. getRequestDispatcher()?
+Answer:
+
+When you want to preserve the current request/response objects and transfer them to another resource WITHIN the context, you must use getRequestDispatcher or getNamedDispatcher.
+
+If you want to dispatch to resources OUTSIDE the context, then you must use sendRedirect. In this case you won’t be sending the original request/response objects, but you will be sending a header asking to the browser to issue a request to the new URL.
+
+If you don’t need to preserve the request/response objects, you can use either.
+
+75) How do I access the value of a cookie using JavaScript?
+Answer:
+
+You can manipulate cookies in JavaScript with the document.cookie property. You can set a cookie by assigning this property, and retrieve one by reading its current value.
+
+The following statement, for example, sets a new cookie with a minimum number of attributes:
+
+1
+document.cookie = "cookieName=cookieValue";
+And the following statement displays the property’s value:
+
+1
+alert(document.cookie);
+The value of document.cookie is a string containing a list of all cookies that are associated with a web page. It consists, that is, of name=value pairs for each cookie that matches the current domain, path, and date. The value of the document.cookie property, for instance, might be the following string:
+
+1
+cookieName1=cookieValue1; cookieName2=cookieValue2;
+76) How do I write to a log file using JSP under Tomcat? Can I make use of the log() method for this?
+Answer:
+
+Yes, you can use the Servlet API’s log method in Tomcat from within JSPs or servlets. These messages are stored in the server’s log directory in a file called servlet.log.
+
+77) How can I use a servlet to print a file on a printer attached to the client?
+Answer:
+
+The security in a browser is designed to restrict you from automating things like this. However, you can use JavaScript in the HTML your servlet returns to print a frame. The browser will still confirm the print job with the user, so you can’t completely automate this. Also, you’ll be printing whatever the browser is displaying (it will not reliably print plug-ins or applets), so normally you are restricted to HTML and images.
+
+[The JavaScript source code for doing this is:
+1
+<input type="button" onClick="window.print(0)" value="Print This Page">
+78) How do you do servlet aliasing with Apache and Tomcat?
+Answer:
+
+Servlet aliasing is a two part process with Apache and Tomcat. First, you must map the request in Apache to Tomcat with the ApJServMount directive, e.g.,
+
+ApJServMount/myservlet/ROOT
+
+Second, you must map that url pattern to a servlet name and then to a servlet class in your web.xml configuration file. Here is a sample exerpt:
+
+1
+<servlet>
+2
+                  <servlet-name>myservlet</servlet-name>
+3
+                  <servlet-class>com.mypackage.MyServlet</servlet-class>
+4
+               </servlet>
+5
+               <servlet-mapping>
+6
+                  <servlet-name>myservlet</servlet-name>
+7
+                  <url-pattern>/myservlet</url-pattern>
+8
+               </servlet-mapping>
+79) I want my servlet page to redirect to a login page if the session has timed out. How can I know if my session has timed out?
+Answer:
+
+If the servlet engine does the time-out, following code should help you:
+
+1
+//assume you have a HttpServletRequest request
+2
+               if(request.getSession(false)==null) {
+3
+                  //no valid session (timeouted=invalid)
+4
+ 
+5
+                  //code to redirect to login page
+6
+               }
+80) Can Tomcat be configured to interpret all, or selected, .html files within a given context as JSP? Or, do JSP files have to end with a .jsp extension?
+Answer:
+
+yes you can do that by modifying the web.xml file. You will have to invoke the org.apache.jasper.runtime.JspServlet for all the requests having extension .html. You can do that by changing the Servlet mapping code:
+
+1
+<servlet-mapping>
+2
+                <servlet-name>
+3
+                  jsp
+4
+                </servlet-name>
+5
+                <url>*.html</url>
+6
+             </servlet-mapping>
+And comment out the following block
+
+1
+<mime-mapping>
+2
+                  <extension>
+3
+                    html
+4
+                  </extension>
+5
+                  <mime-type>
+6
+                    text/html
+7
+                  </mime-type>
+8
+               </mime-mapping>
+81) What is the difference between request attributes, session attributes, and ServletContext attributes?
+Answer:
+
+A ServletContext attribute is an object bound into a context through ServletContext.setAttribute() method and which is available to ALL servlets (thus JSP) in that context, or to other contexts via the getContext() method. By definition a context attribute exists locally in the VM where they were defined. So, they’re unavailable on distributed applications.
+
+Session attributes are bound to a session, as a mean to provide state to a set of related HTTP requests. Session attributes are available ONLY to those servlets which join the session. They’re also unavailable to different JVMs in distributed scenarios. Objects can be notified when they’re bound/unbound to the session implementing the HttpSessionBindingListener interface.
+
+Request attributes are bound to a specific request object, and they last as far as the request is resolved or while it keep dispatched from servlet to servlet. They’re used more as comunication channel between Servlets via the RequestDispatcher Interface (since you can’t add Parameters…) and by the container. Request attributes are very useful in web apps when you must provide setup information between information providers and the information presentation layer (a JSP) that is bound to a specific request and need not be available any longer, which usually happens with sessions without a rigorous control strategy.
+
+Thus we can say that context attributes are meant for infra-structure such as shared connection pools, session attributes to contextual information such as user identification, and request attributes are meant to specific request info such as query results.
+
+82) Are singleton/static objects shared between servlet contexts?
+[Question continues: For example if I have two contexts on a single web server, and each context uses a login servlet and the login servlet connects to a DB. The DB connection is managed by a singleton object. Do both contexts have their own instance of the DB singleton or does one instance get shared between the two?]
+Answer:
+
+It depends on from where the class is loaded.
+
+The classes loaded from context’s WEB-INF directory are not shared by other contexts, whereas classes loaded from CLASSPATH are shared. So if you have exactly the same DBConnection class in WEB-INF/classes directory of two different contexts, each context gets its own copy of the singleton (static) object.
+
+83) When building web applications, what are some areas where synchronization problems arrise?
+Answer:
+
+In general, you will run into synchronization issues when you try to access any shared resource. By shared resource, I mean anything which might be used by more than one request.
+
+Typical examples include:
+
+Connections to external servers, especially if you have any sort of pooling.
+Anything which you include in a HttpSession. (Your user could open many browser windows and make many simultaneous requests within the one session.)
+Log destinations, if you do your own logging from your servlets.
+84) What is the difference between apache webserver, java webserver and tomcat server?
+Answer:
+
+Apache is an HTTP server written in C that can be compiled and run on many platforms.
+
+Java WebServer is an HTTP server from Sun written in Java that also supports Servlets and JSP.
+
+Tomcat is an open-source HTTP server from the Apache Foundation, written in Java, that supports Servlets and JSP. It can also be used as a “plug-in” to native-code HTTP servers, such as Apache Web Server and IIS, to provide support for Servlets (while still serving normal HTTP requests from the primary, native-code web server).
+
+85) How can you embed a JavaScript within servlets / JSP pages?
+Answer:
+
+You don’t have to do anything special to include JavaScript in servlets or JSP pages. Just have the servlet/JSP page generate the necessary JavaScript code, just like you would include it in a raw HTML page.
+
+The key thing to remember is it won’t run in the server. It will run back on the client when the browser loads the generate HTML, with the included JavaScript.
+
+86) How can I make a POST request through response.sendRedirect() or response.setStatus() and response.setHeader() methods?
+Answer:
+
+You can’t. It’s a fundamental limitation of the HTTP protocol. You’ll have to figure out some other way to pass the data, such as
+
+Use GET instead
+Make the POST from your servlet, not from the client
+Store data in cookies instead of passing it via GET/POST
+87) How do I pass a request object of one servlet as a request object to another servlet?
+Answer:
+
+Use a Request Dispatcher.
+
+88) I call a servlet as the action in a form, from a jsp. How can I redirect the response from the servlet, back to the JSP? (RequestDispatcher.forward will not help in this case, as I do not know which resource has made the request. request.getRequestURI will return the uri as contained in the action tag of the form, which is not what is needed.)
+Answer:
+
+You’ll have to pass the JSP’s URI in to the servlet, and have the servlet call sendRedirect to go back to the JSP. For example:
+
+1
+<FORM ACTION="/foo/myservlet">
+2
+                  <INPUT TYPE="HIDDEN" NAME="redirect" VALUE="/foo/thisjsp.jsp">
+3
+                     Shoe size: <INPUT NAME="shoesize">
+4
+                  <INPUT TYPE="SUBMIT">
+5
+               </FORM>
+Then in the servlet…
+
+1
+response.sendRedirect(request.getParameter("redirect"));
+89) What is the ServletConfig object, and why is it useful?
+Answer:
+
+The ServletConfig object is an interface. It contains the methods
+
+getInitParameter
+getInitParameterNames
+getServletContext
+getServletName
+You can use the methods to determine the Servlet’s initialization parameters, the name of the servlets instance, and a reference to the Servlet Context the servlet is running in.
+
+getServletContext is the most valuable method, as it allows you to share information accross an application (context).
+
+90) I have a global variable in a servlet class. What will happen to this global variable if two requests hit on the same time?
+Answer:
+
+What will happen is an unforeseeable event.
+
+The best way to establish a default occurrence (the servlet handles a request at a time) is to synchronize the access to the global variable or alternatively to create a servlet that implements the SingleThreadModel interface.
+
+91) Suppose I have 2 servers, server1 and server2. How can I take data in a cookie from server1, and send it to server2?
+Answer:
+
+You’ll have to create a (new) similar cookie on server 2.
+
+Have a ReadCookieServlet running on server1 that
+
+Reads the cookie, using request.getCookies()
+Redirects to WriteCookieServlet running on server2, passing the cookie name, value and expiration date as request parameters, using response.sendRedirect().
+Have a WriteCookieServlet running on server2 that
+
+Reads the cookie name, value and expiration date request parameters, using request.getParameter().
+Creates a similar cookie, using response.addCookie().
+92) How can I pass data from a servlet running in one context (webapp) to a servlet running in another context?
+Answer:
+
+There are three ways I can think of off the top of my head:
+
+Store the information you want to share in a persistant format, such as in a file system or database. That way, any servlet that is running in a JVM that can “see” these resources can get to this information.
+If persisting this information is not an option, you can bind this information to a context that is accessible to all servlet contexts, such as the application server’s context. This way, you can keep the data you want to share in memory.
+Use the old fashion way of passing information to a servlet – HTTP. One servlet could foward a request to another servlet and include the data that needs to be shared as parameters in the request.
+93) How can I write an “error page” — that is, a servlet or JSP to report errors of other servlets?
+Answer:
+
+The Servlet 2.2 specification allows you to specify an error page (a servlet or a JSP) for different kinds of HTTP errors or ServletExceptions. You can specify this in deployment descriptor of the web application as:
+
+1
+<error-page>
+2
+                  <exception-type>FooException</exception-type>
+3
+                  <location>/error.jsp</location>
+4
+                </error-page>
+where FooException is a subclass of ServletException.
+
+The web container invokes this servlet in case of errors, and you can access the following information from the request object of error servlet/JSP: error code, exception type, and a message.
+
+94) What is the difference between ServletContext and ServletConfig?
+Answer:
+
+A ServletContext represents the context in a servlet container of a servlet instance operates. A servlet container can have several contexts (or web applications) at one time. Each servlet instance is running in one of these contexts. All servlets instances running in the same context are part of the same web application and, therefore, share common resources. A servlet accesses these shared resource (such as a RequestDispatcher and application properties) through the ServletContext object.
+
+This notion of a web application became very significant upon the Servlet 2.1 API, where you could deploy an entire web application in a WAR file. Notice that I always said “servlet instance”, not servlet. That is because the same servlet can be used in several web applications at one time. In fact, this may be common if there is a generic controller servlet that can be configured at run time for a specific application. Then, you would have several instances of the same servlet running, each possibly having different configurations.
+
+This is where the ServletConfig comes in. This object defines how a servlet is to be configured is passed to a servlet in its init method. Most servlet containers provide a way to configure a servlet at run-time (usually through flat file) and set up its initial parameters. The container, in turn, passes these parameters to the servlet via the ServetConfig.
+
+95) Under what circumstances will a servlet be reloaded?
+Answer:
+
+That depends on the Servlet container.
+
+Most of the Servlet containers reload the servlet only it detects the code change in the Servlet, not in the referenced classes.
+
+In Tomcat’s server.xml deployment descriptor, if you have mentioned
+
+1
+<Context path="/myApp"
+2
+                             docBase="D:/myApp/webDev"
+3
+                               crossContext="true"
+4
+                               debug="0"
+5
+                               reloadable="true"
+6
+                               trusted="false" >
+7
+              </Context>
+The reloadable = true makes the magic. Every time the Servlet container detects that the Servlet code is changed, it will call the destroy on the currently loaded Servlet and reload the new code.
+
+But if the class that is referenced by the Servlet changes, then the Servlet will not get loaded. You will have to change the timestamp of the servlet or stop-start the server to have the new class in the container memory.
+
+96) What is a Servlet Filter?
+Answer:
+
+A filter is basically a component that is invoked whenever a resource is invoked for which the filter is mapped. The resource can be something like a servlet, or a URL pattern. A filter normally works on the request, response, or header attributes, and does not itself send a response to the client.
+
+97) I am using the RequestDispatcher’s forward() method to redirect to a JSP. The problem is that the jsp’s url is now relative to the servlet’s url and all my url’s in the jsp such as <img src=”pic.gif”> will be corrupt. How do I solve this problem?
+Answer:
+
+You can use absolute urls like:
+
+1
+<BODY>
+2
+                 <% String base = request.getContextPath(); %>
+3
+                 <IMG src="<%=base%>/img/pic.gif">
+4
+              </BODY>
+or write out a BASE tag like:
+
+1
+<% String base = request.getContextPath(); %>
+2
+               <HEAD>
+3
+                  <BASE HREF="<%=base%>">
+4
+               </HEAD>
+5
+               <BODY>
+6
+                  <IMG src="img/pic.gif">
+7
+               </BODY>
+That should take care of the problem.
+
+98) How can I return a readily available (static) HTML page to the user instead of generating it in the servlet?
+Answer:
+
+To solve your problem, you can either send a “Redirect” back to the client or use a RequestDispatcher and forward your request to another page:
+
+Redirect:
+A redirection is made using the HttpServletResponse object:
+
+1
+if(condition) {
+2
+      response.sendRedirect("page1.html");
+3
+   } else {
+4
+           response.sendRedirect("page2.html");
+5
+   }
+RequestDispatcher:
+A request dispatcher can be obtained through the ServletContext. It can be used to include another page or to forward to it.
+
+1
+if(condition) {
+2
+     this.getServletContext()
+3
+                  .getRequestDispatcher("page1.html").forward();
+4
+  } else {
+5
+    this.getServletContext()
+6
+                  .getRequestDispatcher("page2.html").forward();
+7
+  }
+Both solutions require, that the pages are available in you document root. If they are located somewhere else on your filesystem, you have to open the file manually and copy their content to the output writer.
+
+If your application server is set up in combination with a normal web server like Apache, you should use solution (1), because the the web server usually serves static files much faster than the application server.
+
+99) What is the difference between static variables and instance variables in a servlet?
+Answer:
+
+According to the Java Language definition, a static variable is shared among all instances of a class, where a non-static variable — also called an instance variable — is specific to a single instance of that class.
+
+According to the Servlet specification, a servlet that does not declare SingleThreadModel usually has one and only one instance, shared among all concurrent requests hitting that servlet.
+
+That means that, in servlets (and other multithreaded applications), an instance variable behaves very much like a static variable, since it is shared among all threads. You have to be very careful about synchronizing access to shared data.
+
+The big difference between instance variables and static variables comes when you have configured your servlet engine to instantiate two instances of the same servlet class, but with different init parameters. In this case, there will be two instances of the same servlet class, which means two sets of instance variables, but only one set of static variables.
+
+Remember that you can store data in lots of different places in a servlet. To wit:
+
+Local variables – for loop iterators, result sets, and so forth
+Request attributes – for data that must be passed to other servlets invoked with the RequestDispatcher
+Session attributes – persists for all future requests from the current user only
+Instance variables – for data that persists for the life of the servlet, shared with all concurrent users
+Static variables – for data that persists for the life of the application, shared with all concurrent users — including any other servlet instances that were instantiated with different init parameters
+Context attributes – for data that must persist for the life of the application, and be shared with all other servlets
+100) How can I share data between two different web applications?
+Answer:
+
+Different servlets may share data within one application via ServletContext. If you have a compelling to put the servlets in different applications, you may wanna consider using EJBs.

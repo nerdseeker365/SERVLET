@@ -1,0 +1,25 @@
+//HtmlServlet.java
+package com.nt.servlet
+import javax.servlet.*;
+import javax.servlet.html.*;
+import java.io.*;
+public class HtmlServlet extends HttpServlet 
+
+{
+	protected void service(HttpServletRequest res,HttpServiceResponse res)throws ServletExceptions,IOException{
+		//get PrintWriter
+		PrintWriter pw=null;
+		//set response ContentType
+		res.setContentType("text/html");
+		//Write logic to generate output (webpages),Display Content
+		pw.println("<table border='1' bgcolor='cyan'>");
+		pw.println("<tr><th>Show Name</th><thj>Host</th></tr>");
+		pw.println("<tr><td>Big Boss-Telugu</td></td>Natural Star-Nani</td><tr>
+		pw.println("<tr><td>Big Boss-Tamil</td></td>Movie Navel-Kamal Hasan</td><tr>
+		pw.println("<tr><td>Big Boss-Marathi</td></td>The Foriegn Villan-Mahesh</td><tr>
+		pw.println("<tr><td>Big Boss-Hindi</td></td>Chickora Star-Salman Khan</td><tr>
+		pw.println("</table>");
+		//close Streams 
+	}//service
+
+};//class
